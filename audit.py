@@ -28,8 +28,8 @@ E-23 REFERENCE:
 DOCUMENT:
 {document}
 
-Return ONLY a JSON object with this exact structure, no preamble, no markdown:
-{"compliance_score": <0-100>, "risk_rating": "<Low|Medium|High|Critical>", "summary": "<2-3 sentences>", "findings": [{"category": "<string>", "requirement": "<string>", "status": "<Compliant|Partial|Non-Compliant|Not Assessed>", "gap": "<string or null>", "recommendation": "<string>", "regulatory_source": "OSFI Guideline E-23", "severity": "<Critical|High|Medium|Low>"}], "critical_gaps": ["<string>"], "strengths": ["<string>"]}"""
+Return ONLY valid JSON with no markdown, no backticks, no preamble. Start your response with {{ and end with }}. Use this structure:
+{{"compliance_score": <integer 0-100>, "risk_rating": "<Low|Medium|High|Critical>", "summary": "<2-3 sentences>", "findings": [{{"category": "<string>", "requirement": "<string>", "status": "<Compliant|Partial|Non-Compliant|Not Assessed>", "gap": "<string or null>", "recommendation": "<string>", "regulatory_source": "OSFI Guideline E-23", "severity": "<Critical|High|Medium|Low>"}}], "critical_gaps": ["<string>"], "strengths": ["<string>"]}}"""
 
 
 async def run_audit(text: str, document_name: str = "Document") -> dict:
@@ -44,12 +44,23 @@ async def run_audit(text: str, document_name: str = "Document") -> dict:
     )
 
     raw = response.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+    # Strip markdown code fences robustly
+    if "```" in raw:
+        parts = raw.split("```")
+        for part in parts:
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            if part.startswith("{"):
+                raw = part
+                break
+    # Find JSON boundaries
+    start = raw.find("{")
+    end = raw.rfind("}") + 1
+    if start != -1 and end > start:
+        raw = raw[start:end]
 
-    result = json.loads(raw.strip())
+    result = json.loads(raw)
     result["document_name"] = document_name
     if "critical_gaps" not in result:
         result["critical_gaps"] = []
