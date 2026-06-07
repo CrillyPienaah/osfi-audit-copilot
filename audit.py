@@ -1,6 +1,7 @@
 ﻿import os
+import asyncio
 import json
-from openai import AsyncOpenAI
+from langchain_openai import ChatOpenAI
 
 E23_CORPUS = [
     {"source": "OSFI E-23", "section": "Model Inventory & Risk Rating", "content": "OSFI E-23 requires FRFIs to maintain a comprehensive model inventory covering all models including AI/ML systems. The inventory must document model purpose, risk rating, validation status, and lifecycle stage. Models must be classified by inherent and residual risk using quantitative and qualitative factors including autonomy level, complexity, customer impact, and regulatory risk."},
@@ -36,15 +37,16 @@ async def run_audit(text: str, document_name: str = "Document") -> dict:
     doc_excerpt = text[:4000] if len(text) > 4000 else text
     prompt = AUDIT_PROMPT.format(context=CONTEXT, document=doc_excerpt)
 
-    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    response = await client.chat.completions.create(
+    llm = ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
-        messages=[{"role": "user", "content": prompt}]
+        openai_api_key=os.getenv("OPENAI_API_KEY")
     )
 
-    raw = response.choices[0].message.content.strip()
-    # Strip markdown code fences robustly
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(None, lambda: llm.invoke(prompt))
+
+    raw = response.content.strip()
     if "```" in raw:
         parts = raw.split("```")
         for part in parts:
@@ -54,7 +56,6 @@ async def run_audit(text: str, document_name: str = "Document") -> dict:
             if part.startswith("{"):
                 raw = part
                 break
-    # Find JSON boundaries
     start = raw.find("{")
     end = raw.rfind("}") + 1
     if start != -1 and end > start:
