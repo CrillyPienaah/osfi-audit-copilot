@@ -1,7 +1,6 @@
 ﻿import os
-import asyncio
 import json
-from langchain_openai import ChatOpenAI
+from openai import AsyncOpenAI
 
 E23_CORPUS = [
     {"source": "OSFI E-23", "section": "Model Inventory & Risk Rating", "content": "OSFI E-23 requires FRFIs to maintain a comprehensive model inventory covering all models including AI/ML systems. The inventory must document model purpose, risk rating, validation status, and lifecycle stage. Models must be classified by inherent and residual risk using quantitative and qualitative factors including autonomy level, complexity, customer impact, and regulatory risk."},
@@ -30,23 +29,21 @@ DOCUMENT:
 {document}
 
 Return ONLY a JSON object with this exact structure, no preamble, no markdown:
-{{"compliance_score": <0-100>, "risk_rating": "<Low|Medium|High|Critical>", "summary": "<2-3 sentences>", "findings": [{{"category": "<string>", "requirement": "<string>", "status": "<Compliant|Partial|Non-Compliant|Not Assessed>", "gap": "<string or null>", "recommendation": "<string>", "regulatory_source": "OSFI Guideline E-23", "severity": "<Critical|High|Medium|Low>"}}], "critical_gaps": ["<string>"], "strengths": ["<string>"]}}"""
+{"compliance_score": <0-100>, "risk_rating": "<Low|Medium|High|Critical>", "summary": "<2-3 sentences>", "findings": [{"category": "<string>", "requirement": "<string>", "status": "<Compliant|Partial|Non-Compliant|Not Assessed>", "gap": "<string or null>", "recommendation": "<string>", "regulatory_source": "OSFI Guideline E-23", "severity": "<Critical|High|Medium|Low>"}], "critical_gaps": ["<string>"], "strengths": ["<string>"]}"""
 
 
 async def run_audit(text: str, document_name: str = "Document") -> dict:
     doc_excerpt = text[:4000] if len(text) > 4000 else text
     prompt = AUDIT_PROMPT.format(context=CONTEXT, document=doc_excerpt)
 
-    llm = ChatOpenAI(
+    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    response = await client.chat.completions.create(
         model="gpt-4o-mini",
         temperature=0,
-        openai_api_key=os.getenv("OPENAI_API_KEY")
+        messages=[{"role": "user", "content": prompt}]
     )
 
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(None, lambda: llm.invoke(prompt))
-
-    raw = response.content.strip()
+    raw = response.choices[0].message.content.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
