@@ -1,21 +1,23 @@
 ﻿import os
 import asyncio
 import json
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
+from langchain_openai import ChatOpenAI
 
 E23_CORPUS = [
-    Document(page_content="OSFI E-23 requires FRFIs to maintain a comprehensive model inventory covering all models including AI/ML systems. The inventory must document model purpose, risk rating, validation status, and lifecycle stage. Models must be classified by inherent and residual risk using quantitative and qualitative factors including autonomy level, complexity, customer impact, and regulatory risk.", metadata={"source": "OSFI E-23", "section": "Model Inventory & Risk Rating"}),
-    Document(page_content="OSFI E-23 mandates independent model validation before initial deployment and for all material changes. Validation must assess conceptual soundness, data quality, and performance. For AI/ML models, validation must include bias testing, fairness assessment, and explainability evaluation. Third-party models require the same validation standards.", metadata={"source": "OSFI E-23", "section": "Independent Model Validation"}),
-    Document(page_content="OSFI E-23 requires five data properties: (1) Accurate and fit-for-use, (2) Relevant and representative, (3) Compliant with applicable laws, (4) Traceable with documented lineage, (5) Timely and refreshed appropriately. Data bias must be identified and managed.", metadata={"source": "OSFI E-23", "section": "Data Properties"}),
-    Document(page_content="OSFI E-23 requires ongoing model monitoring after deployment to detect drift, degradation, and anomalies. Monitoring must track accuracy metrics and data drift. For autonomous AI/ML models, monitoring must detect autonomous re-parametrization. Performance thresholds must trigger escalation per the model risk governance framework.", metadata={"source": "OSFI E-23", "section": "Model Monitoring"}),
-    Document(page_content="OSFI E-23 requires AI/ML models to have appropriate explainability and transparency. Black-box approaches require alternative controls. Credit decision models must provide adverse action reasons. Bias and fairness testing is required.", metadata={"source": "OSFI E-23", "section": "Explainability & Fairness"}),
-    Document(page_content="OSFI E-23 governance requires Board approval of the model risk management framework. Three lines of defense: model developers first line, model risk management second line, internal audit third line. High-risk models require higher approval authority and more frequent review cycles.", metadata={"source": "OSFI E-23", "section": "Governance Structure"}),
-    Document(page_content="OSFI E-23 model lifecycle covers five stages: Model Design, Model Review with independent validation, Model Deployment with change management, Model Monitoring with ongoing surveillance, and Model Decommission with documented retirement.", metadata={"source": "OSFI E-23", "section": "Model Lifecycle"}),
-    Document(page_content="OSFI E-23 applies to all Federally Regulated Financial Institutions effective May 1 2027. Covers banks, foreign bank branches, life insurers, P&C insurers, and trust companies. Covers all models including AI/ML systems, generative AI, and agentic systems.", metadata={"source": "OSFI E-23", "section": "Scope & Application"}),
+    {"source": "OSFI E-23", "section": "Model Inventory & Risk Rating", "content": "OSFI E-23 requires FRFIs to maintain a comprehensive model inventory covering all models including AI/ML systems. The inventory must document model purpose, risk rating, validation status, and lifecycle stage. Models must be classified by inherent and residual risk using quantitative and qualitative factors including autonomy level, complexity, customer impact, and regulatory risk."},
+    {"source": "OSFI E-23", "section": "Independent Model Validation", "content": "OSFI E-23 mandates independent model validation before initial deployment and for all material changes. Validation must assess conceptual soundness, data quality, and performance. For AI/ML models, validation must include bias testing, fairness assessment, and explainability evaluation. Third-party models require the same validation standards."},
+    {"source": "OSFI E-23", "section": "Data Properties", "content": "OSFI E-23 requires five data properties: (1) Accurate and fit-for-use, (2) Relevant and representative, (3) Compliant with applicable laws, (4) Traceable with documented lineage, (5) Timely and refreshed appropriately. Data bias must be identified and managed."},
+    {"source": "OSFI E-23", "section": "Model Monitoring", "content": "OSFI E-23 requires ongoing model monitoring after deployment to detect drift, degradation, and anomalies. Monitoring must track accuracy metrics and data drift. For autonomous AI/ML models, monitoring must detect autonomous re-parametrization. Performance thresholds must trigger escalation per the model risk governance framework."},
+    {"source": "OSFI E-23", "section": "Explainability & Fairness", "content": "OSFI E-23 requires AI/ML models to have appropriate explainability and transparency. Black-box approaches require alternative controls. Credit decision models must provide adverse action reasons. Bias and fairness testing is required."},
+    {"source": "OSFI E-23", "section": "Governance Structure", "content": "OSFI E-23 governance requires Board approval of the model risk management framework. Three lines of defense: model developers first line, model risk management second line, internal audit third line. High-risk models require higher approval authority and more frequent review cycles."},
+    {"source": "OSFI E-23", "section": "Model Lifecycle", "content": "OSFI E-23 model lifecycle covers five stages: Model Design, Model Review with independent validation, Model Deployment with change management, Model Monitoring with ongoing surveillance, and Model Decommission with documented retirement."},
+    {"source": "OSFI E-23", "section": "Scope & Application", "content": "OSFI E-23 applies to all Federally Regulated Financial Institutions effective May 1 2027. Covers banks, foreign bank branches, life insurers, P&C insurers, and trust companies. Covers all models including AI/ML systems, generative AI, and agentic systems."},
 ]
+
+CONTEXT = "\n\n".join(
+    f"[{item['source']} - {item['section']}]\n{item['content']}"
+    for item in E23_CORPUS
+)
 
 AUDIT_PROMPT = """You are an expert OSFI E-23 compliance auditor.
 
@@ -30,32 +32,26 @@ DOCUMENT:
 Return ONLY a JSON object with this exact structure, no preamble, no markdown:
 {{"compliance_score": <0-100>, "risk_rating": "<Low|Medium|High|Critical>", "summary": "<2-3 sentences>", "findings": [{{"category": "<string>", "requirement": "<string>", "status": "<Compliant|Partial|Non-Compliant|Not Assessed>", "gap": "<string or null>", "recommendation": "<string>", "regulatory_source": "OSFI Guideline E-23", "severity": "<Critical|High|Medium|Low>"}}], "critical_gaps": ["<string>"], "strengths": ["<string>"]}}"""
 
-_vectorstore = None
-
-def get_vectorstore():
-    global _vectorstore
-    if _vectorstore is None:
-        embeddings = OpenAIEmbeddings(model="text-embedding-3-small", openai_api_key=os.getenv("OPENAI_API_KEY"))
-        splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
-        chunks = splitter.split_documents(E23_CORPUS)
-        _vectorstore = Chroma.from_documents(documents=chunks, embedding=embeddings)
-    return _vectorstore
 
 async def run_audit(text: str, document_name: str = "Document") -> dict:
-    vectorstore = get_vectorstore()
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
-    loop = asyncio.get_event_loop()
-    docs = await loop.run_in_executor(None, retriever.invoke, text[:500])
-    context = "\n\n".join([f"[{d.metadata.get('source')} - {d.metadata.get('section')}]\n{d.page_content}" for d in docs])
     doc_excerpt = text[:4000] if len(text) > 4000 else text
-    prompt = AUDIT_PROMPT.format(context=context, document=doc_excerpt)
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=os.getenv("OPENAI_API_KEY"))
+    prompt = AUDIT_PROMPT.format(context=CONTEXT, document=doc_excerpt)
+
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0,
+        openai_api_key=os.getenv("OPENAI_API_KEY")
+    )
+
+    loop = asyncio.get_event_loop()
     response = await loop.run_in_executor(None, lambda: llm.invoke(prompt))
+
     raw = response.content.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
+
     result = json.loads(raw.strip())
     result["document_name"] = document_name
     if "critical_gaps" not in result:
