@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -56,7 +56,7 @@ async def audit_text(request: TextAuditRequest):
         result = await run_audit(text=request.text, document_name=request.document_name)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=repr(e))
 
 @app.post("/audit/pdf", response_model=AuditResponse)
 async def audit_pdf(file: UploadFile = File(...)):
@@ -78,7 +78,7 @@ async def audit_pdf(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=repr(e))
 
 @app.get("/samples")
 def get_samples():
